@@ -13,6 +13,7 @@ import {
 import { resolveProfileName } from '../lib/config.js';
 import { ApiError, InterruptError, RequestTimeoutError } from '../lib/errors.js';
 import { firstSuiteNextSteps } from '../lib/first-suite-hint.js';
+import { readTextFileBomAware } from '../lib/text-file.js';
 import type { FetchImpl, HttpClient } from '../lib/http.js';
 import { globalShutdown, type ShutdownHandle } from '../lib/interrupt.js';
 import {
@@ -901,7 +902,7 @@ export async function runAutoAuth(
   // Resolve secrets from --*-file variants so they stay out of shell history.
   const password =
     opts.password ??
-    (opts.passwordFile !== undefined ? readFileSync(opts.passwordFile, 'utf8').trim() : undefined);
+    (opts.passwordFile !== undefined ? readTextFileBomAware(opts.passwordFile).trim() : undefined);
   const clientSecret =
     opts.clientSecret ??
     (opts.clientSecretFile !== undefined
