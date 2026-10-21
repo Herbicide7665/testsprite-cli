@@ -191,7 +191,7 @@ describe('runConfigure', () => {
           const signal = init?.signal;
           const timeout = setTimeout(() => {
             reject(new Error('requestTimeoutMs was not applied to the validation ping'));
-          }, 50);
+          }, 1800);
           signal?.addEventListener(
             'abort',
             () => {
@@ -211,7 +211,7 @@ describe('runConfigure', () => {
           output: 'text',
           debug: false,
           fromEnv: true,
-          requestTimeoutMs: 1,
+          requestTimeoutMs: 1000,
         },
         {
           ...deps,
@@ -224,6 +224,100 @@ describe('runConfigure', () => {
 
     expect(sawAbort).toBe(true);
     expect(readProfile('default', { path: credentialsPath })).toBeUndefined();
+  });
+
+  it('applies TESTSPRITE_REQUEST_TIMEOUT_MS to the pre-write validation ping when no flag is set', async () => {
+    const { deps } = makeCapture();
+    let sawAbort = false;
+    const fetchImpl = vi.fn(
+      async (_input: string | URL | Request, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          const signal = init?.signal;
+          const timeout = setTimeout(() => {
+            reject(new Error('TESTSPRITE_REQUEST_TIMEOUT_MS was not applied to the validation ping'));
+          }, 2500);
+          signal?.addEventListener(
+            'abort',
+            () => {
+              sawAbort = true;
+              clearTimeout(timeout);
+              reject(new DOMException('The operation timed out.', 'TimeoutError'));
+            },
+            { once: true },
+          );
+        }),
+    ) as unknown as typeof fetch;
+
+    await expect(
+      runConfigure(
+        {
+          profile: 'default',
+          output: 'text',
+          debug: false,
+          fromEnv: true,
+        },
+        {
+          ...deps,
+          env: {
+            TESTSPRITE_API_KEY: 'sk-user-min',
+            TESTSPRITE_REQUEST_TIMEOUT_MS: '1000',
+          },
+          credentialsPath,
+          fetchImpl,
+        },
+      ),
+    ).rejects.toBeInstanceOf(CLIError);
+
+    expect(sawAbort).toBe(true);
+    expect(readProfile('default', { path: credentialsPath })).toBeUndefined();
+  });
+
+  it('the request-timeout flag wins over TESTSPRITE_REQUEST_TIMEOUT_MS for the validation ping', async () => {
+    const { deps } = makeCapture();
+    let sawAbort = false;
+    const fetchImpl = vi.fn(
+      async (_input: string | URL | Request, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          const signal = init?.signal;
+          // If the env var (600000ms) won over the flag (1000ms), the abort
+          // would land far past this watchdog and the test fails fast.
+          const timeout = setTimeout(() => {
+            reject(new Error('flag did not win over TESTSPRITE_REQUEST_TIMEOUT_MS'));
+          }, 2500);
+          signal?.addEventListener(
+            'abort',
+            () => {
+              sawAbort = true;
+              clearTimeout(timeout);
+              reject(new DOMException('The operation timed out.', 'TimeoutError'));
+            },
+            { once: true },
+          );
+        }),
+    ) as unknown as typeof fetch;
+
+    await expect(
+      runConfigure(
+        {
+          profile: 'default',
+          output: 'text',
+          debug: false,
+          fromEnv: true,
+          requestTimeoutMs: 1000,
+        },
+        {
+          ...deps,
+          env: {
+            TESTSPRITE_API_KEY: 'sk-user-min',
+            TESTSPRITE_REQUEST_TIMEOUT_MS: '600000',
+          },
+          credentialsPath,
+          fetchImpl,
+        },
+      ),
+    ).rejects.toBeInstanceOf(CLIError);
+
+    expect(sawAbort).toBe(true);
   });
 
   it('throws VALIDATION_ERROR when --from-env is set but key is missing', async () => {
