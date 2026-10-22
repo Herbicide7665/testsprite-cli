@@ -272,6 +272,85 @@ describe('runConfigure', () => {
     expect(readProfile('default', { path: credentialsPath })).toBeUndefined();
   });
 
+  it('uses the default timeout for the pre-write validation ping when nothing is configured', async () => {
+    vi.useFakeTimers();
+    try {
+      const { deps } = makeCapture();
+      let sawAbort = false;
+      const fetchImpl = vi.fn(
+        async (_input: string | URL | Request, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            const signal = init?.signal;
+            signal?.addEventListener(
+              'abort',
+              () => {
+                sawAbort = true;
+                reject(signal.reason);
+              },
+              { once: true },
+            );
+          }),
+      ) as unknown as typeof fetch;
+
+      const pending = runConfigure(
+        { profile: 'default', output: 'text', debug: false, fromEnv: true },
+        {
+          ...deps,
+          env: { TESTSPRITE_API_KEY: 'sk-user-min' },
+          credentialsPath,
+          fetchImpl,
+        },
+      );
+      const assertion = expect(pending).rejects.toBeInstanceOf(CLIError);
+      await vi.advanceTimersByTimeAsync(120_000 + 1);
+      await assertion;
+      expect(sawAbort).toBe(true);
+      expect(readProfile('default', { path: credentialsPath })).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('clamps a sub-minimum TESTSPRITE_REQUEST_TIMEOUT_MS up to 1s for the validation ping', async () => {
+    const { deps } = makeCapture();
+    let sawAbort = false;
+    const fetchImpl = vi.fn(
+      async (_input: string | URL | Request, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          const signal = init?.signal;
+          const timeout = setTimeout(() => {
+            reject(new Error('clamped TESTSPRITE_REQUEST_TIMEOUT_MS was not applied'));
+          }, 2500);
+          signal?.addEventListener(
+            'abort',
+            () => {
+              sawAbort = true;
+              clearTimeout(timeout);
+              reject(new DOMException('The operation timed out.', 'TimeoutError'));
+            },
+            { once: true },
+          );
+        }),
+    ) as unknown as typeof fetch;
+
+    await expect(
+      runConfigure(
+        { profile: 'default', output: 'text', debug: false, fromEnv: true },
+        {
+          ...deps,
+          env: {
+            TESTSPRITE_API_KEY: 'sk-user-min',
+            TESTSPRITE_REQUEST_TIMEOUT_MS: '50',
+          },
+          credentialsPath,
+          fetchImpl,
+        },
+      ),
+    ).rejects.toBeInstanceOf(CLIError);
+
+    expect(sawAbort).toBe(true);
+  });
+
   it('the request-timeout flag wins over TESTSPRITE_REQUEST_TIMEOUT_MS for the validation ping', async () => {
     const { deps } = makeCapture();
     let sawAbort = false;
