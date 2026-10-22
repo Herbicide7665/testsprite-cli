@@ -750,6 +750,108 @@ describe('test list subprocess', () => {
   }, 30_000);
 });
 
+describe('explicitly empty --filter is refused (exit 5), not treated as no-filter', () => {
+  // An empty --filter used to fall through every guard as "no filter", so a
+  // `--filter "$VAR"` with VAR unset-but-empty in a CI script silently swept
+  // (and billed) the whole project instead of narrowing. Every dispatch path
+  // must refuse it locally with details.field=filter before any request.
+  const env = { TESTSPRITE_API_KEY: 'sk-user-subproc', TESTSPRITE_API_URL: baseUrl };
+  const expectFilterRefused = (stderr: string) => {
+    const parsed = JSON.parse(stderr) as {
+      error: { code: string; details: { field: string } };
+    };
+    expect(parsed.error.code).toBe('VALIDATION_ERROR');
+    expect(parsed.error.details.field).toBe('filter');
+  };
+
+  it('test run --all --filter "" exits 5 (batch run would otherwise select every test)', async () => {
+    const result = await runCli(
+      [
+        '--dry-run',
+        '--output',
+        'json',
+        'test',
+        'run',
+        '--all',
+        '--project',
+        'project_subproc',
+        '--filter',
+        '',
+      ],
+      env,
+    );
+    expect(result.exitCode).toBe(5);
+    expectFilterRefused(result.stderr);
+  }, 30_000);
+
+  it('test rerun --all --filter "" exits 5 (batch rerun would otherwise keep every test)', async () => {
+    const result = await runCli(
+      [
+        '--dry-run',
+        '--output',
+        'json',
+        'test',
+        'rerun',
+        '--all',
+        '--project',
+        'project_subproc',
+        '--filter',
+        '',
+      ],
+      env,
+    );
+    expect(result.exitCode).toBe(5);
+    expectFilterRefused(result.stderr);
+  }, 30_000);
+
+  it('test run <test-id> --filter "" exits 5 (used to be silently ignored at exit 0)', async () => {
+    const result = await runCli(
+      ['--dry-run', '--output', 'json', 'test', 'run', 'test_subproc', '--filter', ''],
+      env,
+    );
+    expect(result.exitCode).toBe(5);
+    expectFilterRefused(result.stderr);
+  }, 30_000);
+
+  it('ci run --filter "" exits 5 (shares the runTestRunAll dispatch path)', async () => {
+    const result = await runCli(
+      [
+        '--dry-run',
+        '--output',
+        'json',
+        'ci',
+        'run',
+        '--project',
+        'project_subproc',
+        '--filter',
+        '',
+      ],
+      env,
+    );
+    expect(result.exitCode).toBe(5);
+    expectFilterRefused(result.stderr);
+  }, 30_000);
+
+  it('control: a non-empty --filter still dispatches the dry run (exit 0)', async () => {
+    const result = await runCli(
+      [
+        '--dry-run',
+        '--output',
+        'json',
+        'test',
+        'run',
+        '--all',
+        '--project',
+        'project_subproc',
+        '--filter',
+        'Subproc',
+      ],
+      env,
+    );
+    expect(result.exitCode).toBe(0);
+  }, 30_000);
+});
+
 describe('test get subprocess', () => {
   it('--output json returns the §6.2 Test shape', async () => {
     const result = await runCli(['--output', 'json', 'test', 'get', 'test_subproc'], {

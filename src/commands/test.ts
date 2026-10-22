@@ -10032,6 +10032,20 @@ async function finishZeroDispatchBatch(params: {
  * FE tests in the project are skipped by the BE-only engine (advisory).
  * With `--wait`, polls each accepted runId.
  */
+// An explicitly empty --filter is never a narrowing request. Treating it as
+// "no filter" silently widens --all dispatch (and its billing) to the whole
+// project, and on single-test paths it slips past the --all-only guard as if
+// the flag had not been passed at all. Refuse it before any request (the
+// sibling of delete-batch's empty --status guard).
+function rejectEmptyNameFilter(value: string | undefined): void {
+  if (value !== '') return; // omitted (undefined) and non-empty values are fine
+  throw localValidationError(
+    'filter',
+    'empty value is not a narrowing filter — omit --filter to select every project test, ' +
+      'or pass a non-empty substring',
+  );
+}
+
 export async function runTestRunAll(
   opts: RunTestRunAllOptions,
   deps: TestDeps = {},
@@ -10040,6 +10054,7 @@ export async function runTestRunAll(
   const environment = normalizeEnvironmentName(opts.environment);
   const projectId = resolveProjectId(opts.projectId, deps);
   requireProjectId(projectId);
+  rejectEmptyNameFilter(opts.nameFilter);
   // Carry the resolved id into reports, including when it came from the env.
   opts = { ...opts, projectId };
   if (
@@ -12293,7 +12308,11 @@ function validateRerunOptions(opts: RunTestRerunOptions): boolean {
   // still get reran — defeating the user's narrowing intent and burning
   // rerun/auto-heal credits (codex). Reject early. (Mirrors delete-batch's
   // --status guard.)
-  if (opts.nameFilter !== undefined && opts.nameFilter !== '' && !opts.all) {
+  // An explicitly empty --filter is refused unconditionally (see
+  // rejectEmptyNameFilter): it used to bypass this guard, so `--filter ""`
+  // reran the whole project instead of being rejected.
+  rejectEmptyNameFilter(opts.nameFilter);
+  if (opts.nameFilter !== undefined && !opts.all) {
     throw localValidationError(
       'filter',
       '--filter only applies with --all (it narrows which project tests get reran). ' +
@@ -15201,10 +15220,14 @@ export function createTestCommand(deps: TestDeps = {}): Command {
           'provide a <test-id>, or use --all with --project <id> or TESTSPRITE_PROJECT_ID',
         );
       }
+      // An explicitly empty --filter is refused regardless of --all (see
+      // rejectEmptyNameFilter): it used to bypass this guard and either run
+      // silently unfiltered or widen the --all dispatch to every test.
+      rejectEmptyNameFilter(cmdOpts.filter);
       // --filter is an --all-only narrowing flag (mirrors `test rerun --filter`).
       // Without --all it would be SILENTLY ignored while the explicit <test-id>
       // still runs — defeating the caller's narrowing intent. Reject early.
-      if (cmdOpts.filter !== undefined && cmdOpts.filter !== '' && !isAll) {
+      if (cmdOpts.filter !== undefined && !isAll) {
         throw localValidationError(
           'filter',
           '--filter only applies with --all (it narrows which project tests run). Remove --filter, or add --all with --project <id> or TESTSPRITE_PROJECT_ID.',
