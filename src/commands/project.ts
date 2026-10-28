@@ -909,7 +909,8 @@ export async function runAutoAuth(
     }
   };
   const password =
-    opts.password ?? (opts.passwordFile !== undefined ? readPasswordFile(opts.passwordFile) : undefined);
+    opts.password ??
+    (opts.passwordFile !== undefined ? readPasswordFile(opts.passwordFile) : undefined);
   const clientSecret =
     opts.clientSecret ??
     (opts.clientSecretFile !== undefined
