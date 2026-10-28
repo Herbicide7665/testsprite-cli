@@ -234,7 +234,9 @@ describe('runConfigure', () => {
         new Promise<Response>((_resolve, reject) => {
           const signal = init?.signal;
           const timeout = setTimeout(() => {
-            reject(new Error('TESTSPRITE_REQUEST_TIMEOUT_MS was not applied to the validation ping'));
+            reject(
+              new Error('TESTSPRITE_REQUEST_TIMEOUT_MS was not applied to the validation ping'),
+            );
           }, 2500);
           signal?.addEventListener(
             'abort',
